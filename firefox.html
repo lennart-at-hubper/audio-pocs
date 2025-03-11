@@ -16,7 +16,7 @@
             if (blob.size < 4) {
                 return "got empty bytes"
             }
-            const newBytes = await blob.bytes();
+            const newBytes = new Uint8Array(await blob.arrayBuffer());
             var merged = new Uint8Array(buffer.length + newBytes.length)
             merged.set(buffer)
             merged.set(newBytes, buffer.length)
@@ -76,9 +76,54 @@
             const spNode = setupScriptProcessor();
             gainNode.gain.value = 1;
 
+            await context.audioWorklet.addModule("copypastaworklet.js");
+
+            const copypasta = new AudioWorkletNode(
+                context,
+                "recorder-worklet",
+            );
+
+
+
+
+            // debugger;
+            // yourSourceNode.connect(recorderNode);
+            // recorderNode.connect(audioContext.destination);
             micSourceNode
-                .connect(spNode)
+                .connect(copypasta)
+                // .connect(spNode)
                 .connect(gainNode)
+
+            copypasta.connect(context.destination)
+
+            copypasta.port.onmessage = (e) => {
+                if (!sending) {
+                    return
+                }
+
+                // console.log("DATATAAAAA")
+                // console.log(e)
+                if (e.data.eventType === 'data') {
+                    const inputData = e.data.audioBuffer
+                    // // Pass audio data through to next node.
+                    // event.outputBuffer.copyToChannel(inputData, 0, 0);
+
+                    // Convert 32bit fp data to 16bit int data
+                    const outputBuffer = new ArrayBuffer(inputData.length * 2);
+                    const outputView = new DataView(outputBuffer);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        outputView.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                    }
+                    socket.send(outputBuffer);
+                    //
+                    //
+                    // console.log("DATATAAAAA")
+                    // debugger;
+                    // const audioData = e.data.audioBuffer;
+                    // process pcm data
+                }
+            };
 
             function setupScriptProcessor() {
                 const processor = context.createScriptProcessor(/* buffer size */ 256);
