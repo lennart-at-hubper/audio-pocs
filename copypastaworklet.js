@@ -97,15 +97,6 @@ class RecorderWorkletProcessor extends AudioWorkletProcessor {
         for (const byte of inputs[0][0]) {
            this._appendToBuffer(byte)
         }
-
-        // for (
-        //     let dataIndex = 0;
-        //     dataIndex < inputs[0][0].size;
-        //     dataIndex++
-        // ) {
-        //     this._appendToBuffer(inputs[0][0][dataIndex]);
-        // }
-
         return true;
     }
 
