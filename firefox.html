@@ -1,0 +1,124 @@
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+    <title>capture microphone audio into buffer</title>
+
+    <script type="text/javascript">
+
+        var channels = 1;
+        var context;
+        var buffer = new Uint8Array(0)
+        var micSourceNode;
+
+        var sending = true;
+
+        async function enqueue(blob) {
+            if (blob.size < 4) {
+                return "got empty bytes"
+            }
+            const newBytes = await blob.bytes();
+            var merged = new Uint8Array(buffer.length + newBytes.length)
+            merged.set(buffer)
+            merged.set(newBytes, buffer.length)
+            console.log(merged[buffer.length])
+            buffer = merged;
+
+        }
+
+        function play() {
+            const bytesView = new DataView(buffer.buffer);
+            var frameCount = buffer.byteLength / 2;
+            var myAudioBuffer = context.createBuffer(1, frameCount, 48000);
+            var nowBuffering = myAudioBuffer.getChannelData(0, 16, 48000);
+            for (var i = 0; i < frameCount; i++) {
+                nowBuffering[i] = bytesView.getInt16(i * 2, true) / 32768.0;
+            }
+            // buffers.push(myAudioBuffer)
+            // Get an AudioBufferSourceNode.
+            // This is the AudioNode to use when we want to play an AudioBuffer
+            var source = context.createBufferSource();
+            // debugger
+            // set the buffer in the AudioBufferSourceNode
+            source.buffer = myAudioBuffer
+            // connect the AudioBufferSourceNode to the
+            // destination so we can hear the sound
+            source.connect(context.destination);
+            // start the source playing
+            source.start();
+        }
+
+
+        async function listen() {
+            context = new AudioContext({sampleRate: 48000});
+            sending = true;
+            const socket = new WebSocket("ws://localhost:8042/microphone");
+
+            console.log("audio is starting up ...");
+
+            // Get user's microphone and connect it to the AudioContext.
+            const micStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: false,
+                    autoGainControl: false,
+                    noiseSuppression: false,
+                    latency: 0
+                },
+            });
+
+            socket.addEventListener("message", async (event) => {
+                console.log("received:")
+                console.log(event.data)
+                await enqueue(event.data)
+            });
+
+            micSourceNode = new MediaStreamAudioSourceNode(context, {mediaStream: micStream});
+            const gainNode = new GainNode(context);
+            const spNode = setupScriptProcessor();
+            gainNode.gain.value = 1;
+
+            micSourceNode
+                .connect(spNode)
+                .connect(gainNode)
+
+            function setupScriptProcessor() {
+                const processor = context.createScriptProcessor(/* buffer size */ 256);
+
+
+                processor.onaudioprocess = function (event) {
+                    if (!sending) {
+                        return
+                    }
+                    const inputData = event.inputBuffer.getChannelData(0);
+
+                    // Pass audio data through to next node.
+                    event.outputBuffer.copyToChannel(inputData, 0, 0);
+
+                    // Convert 32bit fp data to 16bit int data
+                    const outputBuffer = new ArrayBuffer(inputData.length * 2);
+                    const outputView = new DataView(outputBuffer);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        outputView.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                    }
+                    socket.send(outputBuffer);
+                };
+                return processor;
+            }
+
+        }
+
+        function disconnect() {
+            sending = false;
+        }
+
+    </script>
+
+</head>
+<body>
+
+<button onclick="listen()">Listen to mic</button>
+<button onclick="disconnect()">Disconnect</button>
+<button onclick="play()">Play the stuff</button>
+
+</body>
+</html>
